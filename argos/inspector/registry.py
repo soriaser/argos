@@ -93,6 +93,8 @@ class InspectorRegistry(ClassRegistry):
                              'argos.inspector.pgplugins.lineplot1d.PgLinePlot1d'),
             InspectorRegItem('PyQtGraph/2D Image Plot',
                              'argos.inspector.pgplugins.imageplot2d.PgImagePlot2d'),
+            InspectorRegItem('Matplotlib Healpix',
+                             'argos.inspector.pgplugins.healpix.Healpix'),
             ]
         if DEBUGGING:
             plugins.append(InspectorRegItem('Debug Inspector',

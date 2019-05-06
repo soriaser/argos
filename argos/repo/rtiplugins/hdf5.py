@@ -31,6 +31,8 @@ from argos.repo.baserti import BaseRti
 from argos.utils.cls import to_string, check_class, is_an_array
 from argos.utils.masks import maskedEqual
 
+from astropy.io import fits
+
 logger = logging.getLogger(__name__)
 
 ICON_COLOR_H5PY = '#00EE88'
@@ -126,9 +128,152 @@ def dataSetMissingValue(h5Dataset):
                 return missingDataValue
     return None
 
+def array_range(start, stop, step, step_redundancy=1):
+    array = []
+
+    for value in np.arange(start, stop + step, step):
+        for ii in range(0, step_redundancy):
+            array.append(value)
+
+    return array
+
+def h5_distribution_columns(h5Dataset):
+    axes = []
+    columns = []
+
+    ITER_STAT = 0
+    ITER_FIELD = ITER_STAT + 1
+    ITER_AXIS = ITER_FIELD + 1
+
+    h5Group = h5Dataset
+    iteration = ITER_STAT
+    while h5Group.name != "/distribution":
+        h5GroupFolder = h5Group.name.split("/")[-1]
+
+        if iteration == ITER_STAT:
+            statistic = h5GroupFolder
+        elif iteration == ITER_FIELD:
+            # Special treatment for quantiles since one more group can be included for them
+            if "quantiles" == h5GroupFolder or "quantile" == h5GroupFolder:
+                h5Group = h5Dataset.parent
+                continue
+            else:
+                field = h5GroupFolder
+        elif iteration >= ITER_AXIS:
+            axes.append({
+                "attrs": h5Group.attrs,
+                "name": h5GroupFolder
+            })
+
+        h5Group = h5Group.parent
+        iteration = iteration + 1
+
+    redundancy = 1
+    for axis in reversed(axes):
+        axis_bins = array_range(axis['attrs']['min'], axis['attrs']['max'], axis['attrs']['step'], redundancy)
+        columns.insert(0, fits.Column(name=axis['name'], array=axis_bins, format='F'))
+        redundancy = redundancy * axis['attrs']['bins']
+
+    column_name = field + "_" + statistic
+    columns.append(fits.Column(name=column_name, array=h5Dataset[:], format='F'))
+
+    return columns
 
 
-class H5pyScalarRti(BaseRti):
+def root_group(h5Dataset):
+    """ Calls HDF5 groups parent recursively until HDF5 group parent is '/'
+
+    :param h5Dataset: HDF5 to from which search must start
+    :return: HDF5 root group (i.e. if h5Dataset is /path/to/dataset, it returns /path h5py Group)
+    """
+    root = h5Dataset.parent
+    while root.parent.name != "/":
+        root = root.parent
+    return root
+
+
+class H5pyValueBaseRti(BaseRti):
+    """ Common BaseRti for HDF5 final values (i.e. datasets and fields)"""
+
+
+    def __init__(self, h5Dataset, nodeName, fileName=''):
+        """ Constructor.
+            The name of the field must be given to the nodeName parameter.
+        """
+        super(H5pyValueBaseRti, self).__init__(nodeName, fileName=fileName)
+        check_class(h5Dataset, h5py.Dataset)
+        self._h5Dataset = h5Dataset
+
+
+    @property
+    def isSliceable(self):
+        """ Returns True because the underlying data can be sliced.
+            The scalar will be wrapped in an array with one element so it can be inspected.
+        """
+        return True
+
+
+    def hasChildren(self):
+        """ Returns False. Leaf nodes never have children. """
+        return False
+
+
+    @property
+    def canBeConvertedToFits(self):
+        root = root_group(self._h5Dataset)
+
+        if "data" not in root.attrs:
+            return False
+
+        if root.name == "/healpix":
+            return len(self._h5Dataset.name.replace("quantiles/", "").replace("quantile", "/").split("/")[2:]) == 2
+        elif root.name == "/distribution":
+            return len(self._h5Dataset.name.replace("quantiles/", "").replace("quantile", "/").split("/")[2:]) > 2
+
+        return False
+
+
+    @property
+    def hdu(self):
+        if self.canBeConvertedToFits:
+            column_name = "_".join(self._h5Dataset.name.split("/")[2:])
+            if "_quantiles_" in column_name or "_quantile_" in column_name:
+                column_name = column_name.replace("_quantiles_", "_").replace("_quantile_", "_")
+
+            dataset_root_group = root_group(self._h5Dataset)
+
+            if dataset_root_group.name == "/healpix":
+                dataset = self._h5Dataset[:]
+                column = fits.Column(name=column_name, array=dataset, format='F')
+                hdu = fits.BinTableHDU.from_columns([column], name=dataset_root_group.attrs["data"].decode("utf-8"))
+                hdu.header['PIXTYPE'] = 'HEALPIX'
+                hdu.header['INDXSCHM'] = 'EXPLICIT'  # 'IMPLICIT'
+                hdu.header['ORDERING'] = 'NESTED'
+                hdu.header['NSIDE'] = int(np.sqrt(len(dataset)/12))
+                hdu.header['FIRSTPIX'] = 0
+                hdu.header['LASTPIX'] = len(dataset) -1
+                hdu.header['OBJECT'] = 'FULLSKY'
+                hdu.header['COORDSYS'] = 'E'
+            elif dataset_root_group.name == "/distribution":
+                coldefs = fits.ColDefs([])
+                for column in h5_distribution_columns(self._h5Dataset):
+                    coldefs.add_col(column)
+                hdu = fits.BinTableHDU.from_columns(coldefs, name=dataset_root_group.attrs["data"].decode("utf-8"))
+
+            return hdu
+        else:
+            return None
+
+
+    @property
+    def attributes(self):
+        """ The attributes dictionary.
+            Returns the attributes of the variable that contains this field.
+        """
+        return self._h5Dataset.attrs
+
+
+class H5pyScalarRti(H5pyValueBaseRti):
     """ Repository Tree Item (RTI) that contains a scalar HDF-5 variable.
 
     """
@@ -138,22 +283,7 @@ class H5pyScalarRti(BaseRti):
     def __init__(self, h5Dataset, nodeName='', fileName=''):
         """ Constructor
         """
-        super(H5pyScalarRti, self).__init__(nodeName = nodeName, fileName=fileName)
-        check_class(h5Dataset, h5py.Dataset)
-        self._h5Dataset = h5Dataset
-
-
-    def hasChildren(self):
-        """ Returns False. Leaf nodes never have children. """
-        return False
-
-
-    @property
-    def isSliceable(self):
-        """ Returns True because the underlying data can be sliced.
-            The scalar will be wrapped in an array with one element so it can be inspected.
-        """
-        return True
+        super(H5pyScalarRti, self).__init__(h5Dataset, nodeName, fileName)
 
 
     def __getitem__(self, index):
@@ -182,13 +312,6 @@ class H5pyScalarRti(BaseRti):
 
 
     @property
-    def attributes(self):
-        """ The attributes dictionary.
-        """
-        return self._h5Dataset.attrs
-
-
-    @property
     def unit(self):
         """ Returns the unit of the RTI by calling dataSetUnit on the underlying dataset
         """
@@ -203,40 +326,16 @@ class H5pyScalarRti(BaseRti):
 
 
 
-class H5pyFieldRti(BaseRti):
+class H5pyFieldRti(H5pyValueBaseRti):
     """ Repository Tree Item (RTI) that contains a field in a structured HDF-5 variable.
     """
     _defaultIconGlyph = RtiIconFactory.FIELD
     _defaultIconColor = ICON_COLOR_H5PY
 
-    def __init__(self, h5Dataset, nodeName, fileName=''):
-        """ Constructor.
-            The name of the field must be given to the nodeName parameter.
+    def __init__(self, h5Dataset, nodeName='', fileName=''):
+        """ Constructor
         """
-        super(H5pyFieldRti, self).__init__(nodeName, fileName=fileName)
-        check_class(h5Dataset, h5py.Dataset)
-        self._h5Dataset = h5Dataset
-
-
-    def hasChildren(self):
-        """ Returns False. Field nodes never have children.
-        """
-        return False
-
-
-    @property
-    def attributes(self):
-        """ The attributes dictionary.
-            Returns the attributes of the variable that contains this field.
-        """
-        return self._h5Dataset.attrs
-
-
-    @property
-    def isSliceable(self):
-        """ Returns True because the underlying data can be sliced.
-        """
-        return True
+        super(H5pyFieldRti, self).__init__(h5Dataset, nodeName, fileName)
 
 
     def __getitem__(self, index):
@@ -335,7 +434,7 @@ class H5pyFieldRti(BaseRti):
 
 
 
-class H5pyDatasetRti(BaseRti):
+class H5pyDatasetRti(H5pyValueBaseRti):
     """ Repository Tree Item (RTI) that contains a HDF5 dataset.
 
         This includes dimenions scales, which are then displayed with a different icon.
@@ -346,9 +445,7 @@ class H5pyDatasetRti(BaseRti):
     def __init__(self, h5Dataset, nodeName, fileName=''):
         """ Constructor
         """
-        super(H5pyDatasetRti, self).__init__(nodeName, fileName=fileName)
-        check_class(h5Dataset, h5py.Dataset)
-        self._h5Dataset = h5Dataset
+        super(H5pyDatasetRti, self).__init__(h5Dataset, nodeName, fileName)
         self._isStructured = bool(self._h5Dataset.dtype.names)
 
 
@@ -366,6 +463,19 @@ class H5pyDatasetRti(BaseRti):
         """ Returns True if the variable has a structured type, otherwise returns False.
         """
         return self._isStructured
+
+
+    @property
+    def canBeConvertedToFits(self):
+        return super(H5pyDatasetRti, self).canBeConvertedToFits and not self._isStructured
+
+
+    @property
+    def hdu(self):
+        if self.canBeConvertedToFits:
+            return H5pyFieldRti(self._h5Dataset, nodeName=self._nodeName, fileName=self.fileName).hdu
+        else:
+            return None
 
 
     @property

@@ -22,13 +22,14 @@ import logging
 from argos.qt import QtWidgets, QtGui, QtCore, QtSignal, QtSlot, Qt
 from argos.config.groupcti import MainGroupCti
 from argos.config.boolcti import BoolCti
-from argos.repo.baserti import BaseRti
 from argos.repo.registry import globalRtiRegistry
 from argos.repo.repotreemodel import RepoTreeModel
 from argos.widgets.argostreeview import ArgosTreeView
 from argos.widgets.constants import (LEFT_DOCK_WIDTH, COL_NODE_NAME_WIDTH,
                                         COL_SHAPE_WIDTH, COL_ELEM_TYPE_WIDTH,
                                         DOCK_SPACING, DOCK_MARGIN)
+
+from astropy.io import fits
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,9 @@ class RepoTreeView(ArgosTreeView):
         for action in self.actions():
             menu.addAction(action)
 
+        if self.collector.rti.canBeConvertedToFits:
+            menu.addAction(QtWidgets.QAction("To FITS", self, triggered=self.currentItemToFits))
+
         openAsMenu = self.createOpenAsMenu(parent=menu)
         menu.insertMenu(self.closeItemAction, openAsMenu)
 
@@ -247,6 +251,24 @@ class RepoTreeView(ArgosTreeView):
     #
     #     topLevelIndex = self.model().findTopLevelItemIndex(currentIndex)
     #     self.model().deleteItemAtIndex(topLevelIndex) # this will close the items resources.
+
+    @QtSlot()
+    def currentItemToFits(self):
+        """ Converts current item to FITS format for TOPCAT plotting
+        """
+        logger.debug("currentItemToFits")
+        currentItem, currentIndex = self.getCurrentItem()
+        if not currentIndex.isValid():
+            return
+
+        logger.debug(currentItem.nodePath)
+        fileName, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Select Directory")
+
+        if fileName:
+            if currentItem.canBeConvertedToFits:
+                plist = fits.HDUList([fits.PrimaryHDU()])
+                plist.append(currentItem.hdu)
+                plist.writeto(fileName, overwrite=True, output_verify='warn')
 
 
     @QtSlot()

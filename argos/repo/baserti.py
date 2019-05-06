@@ -73,6 +73,18 @@ class BaseRti(AbstractLazyLoadTreeItem):
         return self._fileName
 
 
+    @property
+    def canBeConvertedToFits(self):
+        """ Returns whether conversion to FITS can be done or not
+        """
+        return False
+
+
+    @property
+    def hdu(self):
+        return None
+
+
     def finalize(self):
         """ Can be used to cleanup resources. Should be called explicitly.
             Recursively calls the close method on all children and then on itself.
