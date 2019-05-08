@@ -21,18 +21,18 @@ import os
 
 DEBUGGING = False
 
-VERSION = '0.2.1'
-REPO_NAME = "argos"
+VERSION = '0.2.1.dev0'
+REPO_NAME = "argosge"
 #SCRIPT_NAME = "argos"
 PACKAGE_NAME = "argos"
-PROJECT_NAME = "Argos"
+PROJECT_NAME = "Argos (Gaia Extension)"
 DEFAULT_PROFILE = 'Panoptes'
-SHORT_DESCRIPTION = "Argos Panoptes HDF/NCDF/scientific data viewer."
-PROJECT_URL = "https://github.com/titusjan/argos"
-AUTHOR = "Pepijn Kenter"
-EMAIL = "titusjan@gmail.com"
-ORGANIZATION_NAME = "titusjan"
-ORGANIZATION_DOMAIN = "titusjan.nl"
+SHORT_DESCRIPTION = "Argos Panoptes HDF/NCDF/scientific data viewer with extensions for Gaia."
+PROJECT_URL = "https://github.com/soriaser/argos"
+AUTHOR = "Sergio Soria"
+EMAIL = "sergio.soria.nieto@gmail.com"
+ORGANIZATION_NAME = "soriaser"
+ORGANIZATION_DOMAIN = "soriaser.nl"
 
 
 def program_directory():

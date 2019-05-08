@@ -75,7 +75,7 @@ setup(
     url=info.PROJECT_URL,
     packages = find_packages(),
     package_data = {'': ['HISTORY.rst'], info.PACKAGE_NAME: ['img/snipicons/*']},
-    entry_points={'gui_scripts': ['argos = argos.main:main']},
+    entry_points={'gui_scripts': ['argosge = argos.main:main']},
     #install_requires = install_requires, # DISABLED. See coments above.
     zip_safe = False,
     classifiers = [
