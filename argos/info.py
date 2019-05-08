@@ -21,7 +21,7 @@ import os
 
 DEBUGGING = False
 
-VERSION = '0.2.1.dev0'
+VERSION = '0.2.1.dev1'
 REPO_NAME = "argosge"
 #SCRIPT_NAME = "argos"
 PACKAGE_NAME = "argos"
